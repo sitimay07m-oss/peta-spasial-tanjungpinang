@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Peta Spasial Perkotaan</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0f1117;
+    color: #e8e8e8;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #topbar {
+    background: #1a1d27;
+    border-bottom: 1px solid #2a2d3a;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    z-index: 10;
+  }
+
+  #topbar h1 {
+    font-size: 13px;
+    font-weight: bold;
+    color: #7dd3fc;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-right: 10px;
+  }
+
+  button {
+    background: #1e2130;
+    color: #c8d6e8;
+    border: 1px solid #3a3f52;
+    padding: 6px 14px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+  }
+
+  button:hover { background: #2a3050; border-color: #7dd3fc; color: #7dd3fc; }
+  button.active { background: #1d3a5a; border-color: #7dd3fc; color: #7dd3fc; }
+
+  #status {
+    margin-left: auto;
+    font-size: 11px;
+    color: #5a6380;
+    letter-spacing: 1px;
+  }
+
+  #viewport {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    cursor: grab;
+  }
+
+  #viewport.grabbing { cursor: grabbing; }
+
+  #map-container {
+    position: absolute;
+    transform-origin: 0 0;
+  }
+
+  svg#map {
+    display: block;
+  }
+
+  /* Road styles */
+  .road-bg { stroke: #2a2e3d; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .road-fg { stroke: #3d4258; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .road-center { stroke: #4a5070; stroke-dasharray: 12 10; stroke-linecap: round; fill: none; }
+  .road-highlight { stroke: #7dd3fc; stroke-linecap: round; stroke-linejoin: round; fill: none; opacity: 0.85; }
+
+  /* Building styles */
+  .building { fill: #1e2235; stroke: #2d3250; stroke-width: 1; }
+  .building-roof { fill: #252840; }
+  .park { fill: #1a2e1a; stroke: #243824; stroke-width: 1; }
+
+  /* Markers */
+  .flag-start { fill: #22c55e; }
+  .flag-end { fill: #ef4444; }
+
+  #zoom-info {
+    position: absolute;
+    bottom: 12px;
+    right: 14px;
+    font-size: 11px;
+    color: #4a5070;
+    letter-spacing: 1px;
+    pointer-events: none;
+  }
+
+  #legend {
+    position: absolute;
+    bottom: 12px;
+    left: 14px;
+    font-size: 11px;
+    color: #4a5070;
+    letter-spacing: 1px;
+    pointer-events: none;
+    line-height: 1.8;
+  }
+  .leg-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>&#x25A6; Peta Kota</h1>
+  <button onclick="generateMap()">&#x21BA; Acak Map</button>
+  <button onclick="randomizePositions()">&#x25CE; Acak Posisi</button>
+  <button onclick="zoomIn()">&#x2295; Zoom In</button>
+  <button onclick="zoomOut()">&#x2296; Zoom Out</button>
+  <button id="btnTrack" onclick="toggleTrack()">&#x25B6; Start Track</button>
+  <span id="status">Siap</span>
+</div>
+
+<div id="viewport">
+  <div id="map-container">
+    <svg id="map"></svg>
+  </div>
+  <div id="zoom-info">ZOOM: 100%</div>
+  <div id="legend">
+    <div><span class="leg-dot" style="background:#22c55e"></span>Titik Awal</div>
+    <div><span class="leg-dot" style="background:#ef4444"></span>Titik Tujuan</div>
+    <div><span class="leg-dot" style="background:#7dd3fc"></span>Jalur Perjalanan</div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// KONFIGURASI
+// ============================================================
+const MAP_W = 2400;
+const MAP_H = 1800;
+const GRID_COLS = 9;
+const GRID_ROWS = 7;
+const CELL_W = MAP_W / GRID_COLS;
+const CELL_H = MAP_H / GRID_ROWS;
+
+// ============================================================
+// STATE
+// ============================================================
+let nodes = [];       // { id, x, y }
+let edges = [];       // { from, to, path (SVG d string), length }
+let graph = {};       // adjacency list: id -> [{to, edgeIdx}]
+let startNode = 0;
+let endNode = 0;
+let routeEdges = [];  // indeks edge yang menjadi jalur
+let animating = false;
+let animPaused = false;
+let animFrame = null;
+let animT = 0;
+let routePoints = []; // titik-titik di sepanjang jalur
+
+// ============================================================
+// PAN & ZOOM
+// ============================================================
+let scale = 1;
+let panX = 0;
+let panY = 0;
+let dragging = false;
+let dragStart = { x: 0, y: 0 };
+
+const viewport = document.getElementById('viewport');
+const container = document.getElementById('map-container');
+
+function applyTransform() {
+  container.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+  document.getElementById('zoom-info').textContent = `ZOOM: ${Math.round(scale * 100)}%`;
+}
+
+viewport.addEventListener('mousedown', e => {
+  dragging = true;
+  dragStart = { x: e.clientX - panX, y: e.clientY - panY };
+  viewport.classList.add('grabbing');
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  panX = e.clientX - dragStart.x;
+  panY = e.clientY - dragStart.y;
+  applyTransform();
+});
+window.addEventListener('mouseup', () => {
+  dragging = false;
+  viewport.classList.remove('grabbing');
+});
+
+viewport.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = viewport.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  const newScale = Math.min(Math.max(scale * delta, 0.2), 5);
+  panX = mx - (mx - panX) * (newScale / scale);
+  panY = my - (my - panY) * (newScale / scale);
+  scale = newScale;
+  applyTransform();
+}, { passive: false });
+
+// Touch support
+let lastTouchDist = null;
+viewport.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    dragging = true;
+    dragStart = { x: e.touches[0].clientX - panX, y: e.touches[0].clientY - panY };
+  }
+  if (e.touches.length === 2) {
+    lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }
+});
+viewport.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && dragging) {
+    panX = e.touches[0].clientX - dragStart.x;
+    panY = e.touches[0].clientY - dragStart.y;
+    applyTransform();
+  }
+  if (e.touches.length === 2 && lastTouchDist) {
+    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    const delta = dist / lastTouchDist;
+    scale = Math.min(Math.max(scale * delta, 0.2), 5);
+    lastTouchDist = dist;
+    applyTransform();
+  }
+}, { passive: false });
+viewport.addEventListener('touchend', () => { dragging = false; lastTouchDist = null; });
+
+function zoomIn() {
+  const cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2;
+  const newScale = Math.min(scale * 1.25, 5);
+  panX = cx - (cx - panX) * (newScale / scale);
+  panY = cy - (cy - panY) * (newScale / scale);
+  scale = newScale;
+  applyTransform();
+}
+function zoomOut() {
+  const cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2;
+  const newScale = Math.max(scale * 0.8, 0.2);
+  panX = cx - (cx - panX) * (newScale / scale);
+  panY = cy - (cy - panY) * (newScale / scale);
+  scale = newScale;
+  applyTransform();
+}
+
+// ============================================================
+// GENERATE MAP
+// ============================================================
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function rndInt(a, b) { return Math.floor(rnd(a, b + 1)); }
+
+function generateMap() {
+  stopAnim();
+  setStatus('Generating...');
+
+  // 1. Buat node di setiap sel grid dengan sedikit offset acak
+  nodes = [];
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const id = r * GRID_COLS + c;
+      const jitter = 0.25;
+      const x = (c + 0.5 + rnd(-jitter, jitter)) * CELL_W;
+      const y = (r + 0.5 + rnd(-jitter, jitter)) * CELL_H;
+      nodes.push({ id, x, y });
+    }
+  }
+
+  // 2. Buat edges — grid connectivity + beberapa diagonal
+  edges = [];
+  graph = {};
+  nodes.forEach(n => graph[n.id] = []);
+
+  function addEdge(a, b) {
+    // Cek duplikat
+    if (graph[a].some(e => e.to === b)) return;
+    const na = nodes[a], nb = nodes[b];
+    const dx = nb.x - na.x, dy = nb.y - na.y;
+    const len = Math.hypot(dx, dy);
+
+    // Buat kurva Bezier kubik dengan 2 control point acak
+    const cx1 = na.x + dx * rnd(0.2, 0.45) + rnd(-80, 80);
+    const cy1 = na.y + dy * rnd(0.2, 0.45) + rnd(-80, 80);
+    const cx2 = na.x + dx * rnd(0.55, 0.8) + rnd(-80, 80);
+    const cy2 = na.y + dy * rnd(0.55, 0.8) + rnd(-80, 80);
+
+    const d = `M ${na.x} ${na.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${nb.x} ${nb.y}`;
+    const idx = edges.length;
+
+    // Estimasi panjang kurva
+    const estLen = len * rnd(1.1, 1.5);
+    edges.push({ from: a, to: b, d, cx1, cy1, cx2, cy2, length: estLen });
+    graph[a].push({ to: b, edgeIdx: idx });
+    graph[b].push({ to: a, edgeIdx: idx });
+  }
+
+  // Koneksi horizontal & vertikal di grid
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const id = r * GRID_COLS + c;
+      if (c + 1 < GRID_COLS) addEdge(id, id + 1);
+      if (r + 1 < GRID_ROWS) addEdge(id, id + GRID_COLS);
+    }
+  }
+
+  // Tambah diagonal acak (~40% sel)
+  for (let r = 0; r < GRID_ROWS - 1; r++) {
+    for (let c = 0; c < GRID_COLS - 1; c++) {
+      if (Math.random() < 0.4) {
+        const id = r * GRID_COLS + c;
+        if (Math.random() < 0.5) addEdge(id, id + GRID_COLS + 1);
+        else addEdge(id + 1, id + GRID_COLS);
+      }
+    }
+  }
+
+  // 3. Pastikan semua node terhubung (tidak terisolasi) via BFS
+  ensureConnected();
+
+  // 4. Pilih posisi awal & tujuan
+  randomizePositions();
+
+  // 5. Render
+  renderMap();
+  setStatus('Peta baru dibuat');
+}
+
+function ensureConnected() {
+  // BFS dari node 0, temukan yang tidak terjangkau, hubungkan ke yang terdekat yang terjangkau
+  const visited = new Set();
+  const queue = [0];
+  visited.add(0);
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const { to } of graph[cur]) {
+      if (!visited.has(to)) { visited.add(to); queue.push(to); }
+    }
+  }
+  nodes.forEach(n => {
+    if (!visited.has(n.id)) {
+      // Cari node terdekat yang sudah terhubung
+      let closest = -1, minD = Infinity;
+      visited.forEach(vid => {
+        const d = Math.hypot(nodes[vid].x - n.x, nodes[vid].y - n.y);
+        if (d < minD) { minD = d; closest = vid; }
+      });
+      if (closest >= 0) {
+        // Tambah edge dan tandai semua yang bisa dicapai dari n
+        addEdgeSimple(n.id, closest);
+        // BFS ulang dari n
+        const q2 = [n.id];
+        visited.add(n.id);
+        while (q2.length) {
+          const c = q2.shift();
+          for (const { to } of graph[c]) {
+            if (!visited.has(to)) { visited.add(to); q2.push(to); }
+          }
+        }
+      }
+    }
+  });
+}
+
+function addEdgeSimple(a, b) {
+  if (graph[a].some(e => e.to === b)) return;
+  const na = nodes[a], nb = nodes[b];
+  const dx = nb.x - na.x, dy = nb.y - na.y;
+  const cx1 = na.x + dx * 0.3 + rnd(-60, 60);
+  const cy1 = na.y + dy * 0.3 + rnd(-60, 60);
+  const cx2 = na.x + dx * 0.7 + rnd(-60, 60);
+  const cy2 = na.y + dy * 0.7 + rnd(-60, 60);
+  const d = `M ${na.x} ${na.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${nb.x} ${nb.y}`;
+  const idx = edges.length;
+  edges.push({ from: a, to: b, d, cx1, cy1, cx2, cy2, length: Math.hypot(dx, dy) * 1.3 });
+  graph[a].push({ to: b, edgeIdx: idx });
+  graph[b].push({ to: a, edgeIdx: idx });
+}
+
+// ============================================================
+// RENDER MAP
+// ============================================================
+function renderMap() {
+  const svg = document.getElementById('map');
+  svg.setAttribute('width', MAP_W);
+  svg.setAttribute('height', MAP_H);
+  svg.setAttribute('viewBox', `0 0 ${MAP_W} ${MAP_H}`);
+  svg.innerHTML = '';
+
+  // Background
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('width', MAP_W); bg.setAttribute('height', MAP_H);
+  bg.setAttribute('fill', '#0d1018');
+  svg.appendChild(bg);
+
+  // Grid subtle
+  const gridG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  gridG.setAttribute('opacity', '0.06');
+  for (let x = 0; x <= MAP_W; x += 80) {
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', x); l.setAttribute('y1', 0); l.setAttribute('x2', x); l.setAttribute('y2', MAP_H);
+    l.setAttribute('stroke', '#7dd3fc'); l.setAttribute('stroke-width', '0.5');
+    gridG.appendChild(l);
+  }
+  for (let y = 0; y <= MAP_H; y += 80) {
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', 0); l.setAttribute('y1', y); l.setAttribute('x2', MAP_W); l.setAttribute('y2', y);
+    l.setAttribute('stroke', '#7dd3fc'); l.setAttribute('stroke-width', '0.5');
+    gridG.appendChild(l);
+  }
+  svg.appendChild(gridG);
+
+  // Bangunan & taman (di sel yang tidak ada node)
+  const blockG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const cx = (c + 0.5) * CELL_W, cy = (r + 0.5) * CELL_H;
+      const ispark = Math.random() < 0.12;
+      const bw = CELL_W * rnd(0.25, 0.45), bh = CELL_H * rnd(0.25, 0.45);
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', cx - bw / 2); rect.setAttribute('y', cy - bh / 2);
+      rect.setAttribute('width', bw); rect.setAttribute('height', bh);
+      rect.setAttribute('rx', ispark ? 8 : 2);
+      rect.setAttribute('class', ispark ? 'park' : 'building');
+      blockG.appendChild(rect);
+    }
+  }
+  svg.appendChild(blockG);
+
+  // Jalan — layer: shadow/bg, lalu garis tengah
+  const roadBgG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const roadFgG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const roadCenterG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+  edges.forEach(e => {
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    bg.setAttribute('d', e.d); bg.setAttribute('class', 'road-bg'); bg.setAttribute('stroke-width', '18');
+    roadBgG.appendChild(bg);
+
+    const fg = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    fg.setAttribute('d', e.d); fg.setAttribute('class', 'road-fg'); fg.setAttribute('stroke-width', '10');
+    roadFgG.appendChild(fg);
+
+    const cen = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    cen.setAttribute('d', e.d); cen.setAttribute('class', 'road-center'); cen.setAttribute('stroke-width', '1');
+    roadCenterG.appendChild(cen);
+  });
+
+  svg.appendChild(roadBgG);
+  svg.appendChild(roadFgG);
+  svg.appendChild(roadCenterG);
+
+  // Jalur highlight (hasil pathfinding)
+  const highlightG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  highlightG.setAttribute('id', 'highlight-group');
+  routeEdges.forEach(idx => {
+    const e = edges[idx];
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', e.d); p.setAttribute('class', 'road-highlight'); p.setAttribute('stroke-width', '4');
+    highlightG.appendChild(p);
+  });
+  svg.appendChild(highlightG);
+
+  // Node dots
+  const nodeG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  nodes.forEach(n => {
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', n.x); c.setAttribute('cy', n.y); c.setAttribute('r', 4);
+    c.setAttribute('fill', '#2a3050'); c.setAttribute('stroke', '#3d4a70'); c.setAttribute('stroke-width', '1');
+    nodeG.appendChild(c);
+  });
+  svg.appendChild(nodeG);
+
+  // Marker awal & tujuan
+  renderMarkers(svg);
+
+  // Objek animasi (mobil)
+  const car = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  car.setAttribute('id', 'car');
+  car.setAttribute('display', 'none');
+  const carBody = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  carBody.setAttribute('x', -10); carBody.setAttribute('y', -6);
+  carBody.setAttribute('width', 20); carBody.setAttribute('height', 12);
+  carBody.setAttribute('rx', 3); carBody.setAttribute('fill', '#7dd3fc');
+  const carTop = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  carTop.setAttribute('x', -5); carTop.setAttribute('y', -10);
+  carTop.setAttribute('width', 12); carTop.setAttribute('height', 8);
+  carTop.setAttribute('rx', 2); carTop.setAttribute('fill', '#bae6fd');
+  const wFL = makeWheel(-6, -7); const wFR = makeWheel(-6, 7);
+  const wBL = makeWheel(6, -7); const wBR = makeWheel(6, 7);
+  car.appendChild(carBody); car.appendChild(carTop);
+  car.appendChild(wFL); car.appendChild(wFR); car.appendChild(wBL); car.appendChild(wBR);
+  svg.appendChild(car);
+}
+
+function makeWheel(x, y) {
+  const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 3);
+  c.setAttribute('fill', '#1a1d27'); c.setAttribute('stroke', '#4a5070'); c.setAttribute('stroke-width', '1');
+  return c;
+}
+
+function renderMarkers(svg) {
+  let old = document.getElementById('markers-group');
+  if (old) old.remove();
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('id', 'markers-group');
+
+  const s = nodes[startNode], e = nodes[endNode];
+
+  // Bendera hijau (start)
+  drawFlag(g, s.x, s.y, '#22c55e', '#16a34a', 'S');
+  // Bendera merah (end)
+  drawFlag(g, e.x, e.y, '#ef4444', '#dc2626', 'T');
+
+  svg.appendChild(g);
+}
+
+function drawFlag(parent, x, y, fill, dark, label) {
+  // Tiang
+  const pole = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  pole.setAttribute('x1', x); pole.setAttribute('y1', y - 4);
+  pole.setAttribute('x2', x); pole.setAttribute('y2', y - 34);
+  pole.setAttribute('stroke', '#e2e8f0'); pole.setAttribute('stroke-width', '2');
+  parent.appendChild(pole);
+  // Bendera
+  const flag = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  flag.setAttribute('points', `${x},${y - 34} ${x + 16},${y - 28} ${x},${y - 22}`);
+  flag.setAttribute('fill', fill);
+  parent.appendChild(flag);
+  // Lingkaran bawah
+  const base = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  base.setAttribute('cx', x); base.setAttribute('cy', y); base.setAttribute('r', 7);
+  base.setAttribute('fill', fill); base.setAttribute('stroke', dark); base.setAttribute('stroke-width', '2');
+  parent.appendChild(base);
+  // Label
+  const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  txt.setAttribute('x', x); txt.setAttribute('y', y + 4);
+  txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('font-size', '8');
+  txt.setAttribute('fill', 'white'); txt.setAttribute('font-weight', 'bold');
+  txt.textContent = label;
+  parent.appendChild(txt);
+}
+
+// ============================================================
+// ACAK POSISI
+// ============================================================
+function randomizePositions() {
+  stopAnim();
+  const n = nodes.length;
+  do {
+    startNode = rndInt(0, n - 1);
+    endNode = rndInt(0, n - 1);
+  } while (startNode === endNode);
+
+  // Cari jalur
+  routeEdges = findPath(startNode, endNode);
+
+  // Update highlight & marker tanpa rebuild semua
+  const svg = document.getElementById('map');
+  if (svg.innerHTML === '') { renderMap(); return; }
+
+  // Rebuild highlight
+  let hg = document.getElementById('highlight-group');
+  if (hg) hg.remove();
+  const highlightG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  highlightG.setAttribute('id', 'highlight-group');
+  routeEdges.forEach(idx => {
+    const e = edges[idx];
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', e.d); p.setAttribute('class', 'road-highlight'); p.setAttribute('stroke-width', '4');
+    highlightG.appendChild(p);
+  });
+  // Insert sebelum markers
+  const markers = document.getElementById('markers-group');
+  if (markers) svg.insertBefore(highlightG, markers);
+  else svg.appendChild(highlightG);
+
+  renderMarkers(svg);
+  setStatus(routeEdges.length > 0 ? `Jalur ditemukan (${routeEdges.length} ruas)` : 'Jalur tidak ditemukan');
+}
+
+// ============================================================
+// PATHFINDING — Dijkstra
+// ============================================================
+function findPath(start, end) {
+  const dist = {}, prev = {}, prevEdge = {};
+  nodes.forEach(n => dist[n.id] = Infinity);
+  dist[start] = 0;
+  const visited = new Set();
+  const queue = [start];
+
+  while (queue.length) {
+    // Ambil node dengan dist terkecil
+    queue.sort((a, b) => dist[a] - dist[b]);
+    const cur = queue.shift();
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    if (cur === end) break;
+
+    for (const { to, edgeIdx } of graph[cur]) {
+      if (visited.has(to)) continue;
+      const nd = dist[cur] + edges[edgeIdx].length;
+      if (nd < dist[to]) {
+        dist[to] = nd;
+        prev[to] = cur;
+        prevEdge[to] = edgeIdx;
+        queue.push(to);
+      }
+    }
+  }
+
+  if (dist[end] === Infinity) return [];
+
+  // Rekonstruksi jalur
+  const path = [];
+  let cur = end;
+  while (prev[cur] !== undefined) {
+    path.unshift(prevEdge[cur]);
+    cur = prev[cur];
+  }
+  return path;
+}
+
+// ============================================================
+// ANIMASI OBJEK
+// ============================================================
+function buildRoutePoints() {
+  // Bangun array titik sepanjang jalur dengan sampling Bezier
+  routePoints = [];
+  const SAMPLES = 40; // per edge
+
+  // Tentukan urutan node di jalur
+  let cur = startNode;
+  for (const eidx of routeEdges) {
+    const e = edges[eidx];
+    const fromNode = e.from === cur ? e.from : e.to;
+    const toNode = e.from === cur ? e.to : e.from;
+    const na = nodes[fromNode];
+    const nb = nodes[toNode];
+
+    // Arah kurva: jika traversal terbalik, swap control point
+    let cx1, cy1, cx2, cy2;
+    if (e.from === cur) {
+      cx1 = e.cx1; cy1 = e.cy1; cx2 = e.cx2; cy2 = e.cy2;
+    } else {
+      cx1 = e.cx2; cy1 = e.cy2; cx2 = e.cx1; cy2 = e.cy1;
+    }
+
+    for (let i = 0; i <= SAMPLES; i++) {
+      const t = i / SAMPLES;
+      const mt = 1 - t;
+      const x = mt*mt*mt*na.x + 3*mt*mt*t*cx1 + 3*mt*t*t*cx2 + t*t*t*nb.x;
+      const y = mt*mt*mt*na.y + 3*mt*mt*t*cy1 + 3*mt*t*t*cy2 + t*t*t*nb.y;
+      routePoints.push({ x, y });
+    }
+    cur = toNode;
+  }
+}
+
+function toggleTrack() {
+  if (routeEdges.length === 0) { setStatus('Tidak ada jalur!'); return; }
+
+  if (!animating) {
+    animating = true;
+    animPaused = false;
+    animT = 0;
+    buildRoutePoints();
+    document.getElementById('btnTrack').textContent = '⏸ Pause';
+    document.getElementById('btnTrack').classList.add('active');
+    const car = document.getElementById('car');
+    if (car) car.setAttribute('display', '');
+    requestAnimationFrame(animStep);
+  } else if (!animPaused) {
+    animPaused = true;
+    document.getElementById('btnTrack').textContent = '▶ Resume';
+    if (animFrame) cancelAnimationFrame(animFrame);
+  } else {
+    animPaused = false;
+    document.getElementById('btnTrack').textContent = '⏸ Pause';
+    requestAnimationFrame(animStep);
+  }
+}
+
+function stopAnim() {
+  animating = false;
+  animPaused = false;
+  if (animFrame) cancelAnimationFrame(animFrame);
+  document.getElementById('btnTrack').textContent = '▶ Start Track';
+  document.getElementById('btnTrack').classList.remove('active');
+  const car = document.getElementById('car');
+  if (car) car.setAttribute('display', 'none');
+}
+
+let lastTime = null;
+const SPEED = 180; // pixel per detik
+
+function animStep(ts) {
+  if (!animating || animPaused) return;
+  if (!lastTime) lastTime = ts;
+  const dt = (ts - lastTime) / 1000;
+  lastTime = ts;
+
+  if (routePoints.length < 2) { stopAnim(); return; }
+
+  // Hitung total panjang & posisi saat ini
+  animT += SPEED * dt;
+  let totalLen = 0;
+  const lens = [];
+  for (let i = 1; i < routePoints.length; i++) {
+    const d = Math.hypot(routePoints[i].x - routePoints[i-1].x, routePoints[i].y - routePoints[i-1].y);
+    lens.push(d);
+    totalLen += d;
+  }
+
+  if (animT >= totalLen) {
+    // Sampai tujuan
+    const last = routePoints[routePoints.length - 1];
+    moveCar(last.x, last.y, 0);
+    setStatus('Tiba di tujuan!');
+    stopAnim();
+    lastTime = null;
+    return;
+  }
+
+  // Cari posisi & sudut
+  let acc = 0;
+  for (let i = 0; i < lens.length; i++) {
+    if (acc + lens[i] >= animT) {
+      const t = (animT - acc) / lens[i];
+      const p0 = routePoints[i], p1 = routePoints[i + 1];
+      const x = p0.x + (p1.x - p0.x) * t;
+      const y = p0.y + (p1.y - p0.y) * t;
+      const angle = Math.atan2(p1.y - p0.y, p1.x - p0.x) * 180 / Math.PI;
+      moveCar(x, y, angle);
+      break;
+    }
+    acc += lens[i];
+  }
+
+  lastTime = ts;
+  animFrame = requestAnimationFrame(animStep);
+}
+
+function moveCar(x, y, angle) {
+  const car = document.getElementById('car');
+  if (!car) return;
+  car.setAttribute('transform', `translate(${x}, ${y}) rotate(${angle})`);
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+// ============================================================
+// INIT
+// ============================================================
+// Center map on load
+window.addEventListener('load', () => {
+  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  panX = (vw - MAP_W * scale) / 2;
+  panY = (vh - MAP_H * scale) / 2;
+  applyTransform();
+  generateMap();
+});
+</script>
+</body>
+</html>
