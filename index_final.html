@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Peta Spasial Perkotaan Tanjungpinang</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#e8e0d8; font-family:'Segoe UI',Arial,sans-serif; overflow:hidden; height:100vh; display:flex; flex-direction:column; }
+
+  /* ── TOPBAR ── */
+  #topbar {
+    background:linear-gradient(135deg,#1e4d7b,#2c5f8a);
+    padding:0 16px;
+    height:52px;
+    display:flex; align-items:center; gap:6px;
+    z-index:10; box-shadow:0 2px 12px rgba(0,0,0,0.4);
+    flex-shrink:0;
+  }
+
+  #app-title {
+    display:flex; align-items:center; gap:8px;
+    margin-right:12px; flex-shrink:0;
+  }
+  #app-title .icon { font-size:20px; }
+  #app-title .text { line-height:1.2; }
+  #app-title .text .main { font-size:13px; font-weight:700; color:#fff; display:block; letter-spacing:0.5px; }
+  #app-title .text .sub { font-size:10px; color:#93c5fd; display:block; }
+
+  .divider { width:1px; height:28px; background:rgba(255,255,255,0.2); margin:0 4px; flex-shrink:0; }
+
+  /* Grup tombol */
+  .btn-group { display:flex; gap:4px; align-items:center; }
+  .btn-group-label { font-size:9px; color:#7dd3fc; text-transform:uppercase; letter-spacing:1px; margin-right:2px; flex-shrink:0; }
+
+  .btn {
+    background:rgba(255,255,255,0.12);
+    color:#e0f0ff; border:1px solid rgba(255,255,255,0.18);
+    padding:5px 11px; font-size:11px; font-weight:600;
+    cursor:pointer; border-radius:5px;
+    transition:all 0.15s; white-space:nowrap;
+    display:flex; align-items:center; gap:4px;
+  }
+  .btn:hover { background:rgba(255,255,255,0.22); border-color:rgba(255,255,255,0.35); transform:translateY(-1px); }
+  .btn.active { background:#22c55e; border-color:#16a34a; color:#fff; }
+  .btn.paused { background:#f59e0b; border-color:#d97706; color:#fff; }
+  .btn.camon { background:#8b5cf6; border-color:#7c3aed; color:#fff; }
+  .btn.danger { background:rgba(239,68,68,0.25); border-color:rgba(239,68,68,0.4); color:#fca5a5; }
+  .btn.danger:hover { background:rgba(239,68,68,0.4); }
+
+  .btn .btn-icon { font-size:13px; }
+
+  /* Select objek */
+  #obj-select {
+    background:rgba(255,255,255,0.12); color:#e0f0ff;
+    border:1px solid rgba(255,255,255,0.18);
+    padding:5px 8px; font-size:11px; font-weight:600;
+    border-radius:5px; cursor:pointer;
+    outline:none;
+  }
+  #obj-select option { background:#1e4d7b; color:#fff; }
+
+  /* Slider kecepatan */
+  .speed-wrap { display:flex; align-items:center; gap:6px; }
+  .speed-label { font-size:10px; color:#93c5fd; white-space:nowrap; }
+  #speed-range { width:65px; cursor:pointer; accent-color:#7dd3fc; }
+  #speed-val { font-size:10px; color:#fff; font-weight:600; min-width:22px; }
+
+  /* Status bar kanan */
+  #status-right {
+    margin-left:auto; display:flex; align-items:center; gap:10px; flex-shrink:0;
+  }
+  #progress-wrap {
+    width:90px; height:5px; background:rgba(255,255,255,0.15);
+    border-radius:3px; overflow:hidden; display:none;
+  }
+  #progress-bar { height:100%; background:#22c55e; border-radius:3px; width:0%; transition:width 0.15s; }
+  #status {
+    font-size:11px; color:#93c5fd; font-weight:500; white-space:nowrap;
+    max-width:160px; overflow:hidden; text-overflow:ellipsis;
+  }
+
+  /* ── VIEWPORT ── */
+  #viewport { flex:1; overflow:hidden; position:relative; cursor:grab; background:#ddd5c8; }
+  #viewport.grabbing { cursor:grabbing; }
+  #map-container { position:absolute; transform-origin:0 0; }
+  svg#map { display:block; }
+
+  /* ── OVERLAY INFO ── */
+  #zoom-info {
+    position:absolute; bottom:12px; right:14px;
+    font-size:11px; color:#444; background:rgba(255,255,255,0.92);
+    padding:4px 10px; border-radius:5px; pointer-events:none;
+    font-weight:600; box-shadow:0 1px 4px rgba(0,0,0,0.15);
+    display:flex; align-items:center; gap:5px;
+  }
+
+  #legend {
+    position:absolute; bottom:12px; left:14px;
+    font-size:11px; color:#333; background:rgba(255,255,255,0.93);
+    padding:10px 14px; border-radius:8px; pointer-events:none;
+    line-height:2.2; box-shadow:0 2px 6px rgba(0,0,0,0.15); font-weight:500;
+  }
+  .leg-row { display:flex; align-items:center; gap:7px; }
+  .leg-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .leg-line { width:20px; height:3px; border-radius:2px; flex-shrink:0; }
+
+  #cam-indicator {
+    position:absolute; top:10px; right:14px;
+    font-size:11px; background:rgba(139,92,246,0.92); color:#fff;
+    padding:4px 10px; border-radius:5px; pointer-events:none;
+    font-weight:600; display:none; box-shadow:0 1px 4px rgba(0,0,0,0.2);
+  }
+
+  /* Tooltip nama jalan */
+  #road-tooltip {
+    position:absolute; pointer-events:none; display:none;
+    background:rgba(30,40,70,0.92); color:#fff;
+    font-size:11px; font-weight:600; padding:4px 10px;
+    border-radius:5px; box-shadow:0 2px 6px rgba(0,0,0,0.25);
+    transform:translate(-50%,-140%); white-space:nowrap; z-index:50;
+  }
+
+  /* Konfeti & toast */
+  #confetti-canvas { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; display:none; z-index:100; }
+  #toast {
+    position:absolute; top:16px; left:50%; transform:translateX(-50%) translateY(-80px);
+    background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff;
+    padding:10px 24px; border-radius:8px; font-size:14px; font-weight:700;
+    box-shadow:0 4px 16px rgba(0,0,0,0.25); pointer-events:none;
+    transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1);
+    z-index:200; white-space:nowrap; letter-spacing:0.5px;
+  }
+  #toast.show { transform:translateX(-50%) translateY(0); }
+
+  /* Info panel atas peta */
+  #info-panel {
+    position:absolute; top:10px; left:14px;
+    background:rgba(255,255,255,0.93); border-radius:8px;
+    padding:8px 14px; font-size:11px; color:#333;
+    box-shadow:0 2px 6px rgba(0,0,0,0.15); pointer-events:none;
+    line-height:1.9; font-weight:500;
+  }
+  #info-panel span { color:#2c5f8a; font-weight:700; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <!-- Judul -->
+  <div id="app-title">
+    <div class="icon">🗺</div>
+    <div class="text">
+      <span class="main">Peta Spasial Perkotaan</span>
+      <span class="sub">Tanjungpinang • Grafika Komputer 2026</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Grup: Peta -->
+  <span class="btn-group-label">Peta</span>
+  <div class="btn-group">
+    <button class="btn" onclick="generateMap()"><span class="btn-icon">🔀</span>Acak Map</button>
+    <button class="btn" onclick="randomizePositions()"><span class="btn-icon">📍</span>Acak Posisi</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Grup: Tampilan -->
+  <span class="btn-group-label">Tampilan</span>
+  <div class="btn-group">
+    <button class="btn" onclick="zoomIn()"><span class="btn-icon">🔍</span>Zoom In</button>
+    <button class="btn" onclick="zoomOut()"><span class="btn-icon">🔎</span>Zoom Out</button>
+    <button class="btn" onclick="resetView()"><span class="btn-icon">⊡</span>Reset View</button>
+    <button class="btn" id="btnCam" onclick="toggleCamera()"><span class="btn-icon">📷</span>Ikuti</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Grup: Animasi -->
+  <span class="btn-group-label">Animasi</span>
+  <div class="btn-group">
+    <select id="obj-select" onchange="onObjChange()">
+      <option value="car">🚗 Mobil</option>
+      <option value="motor">🏍 Motor</option>
+      <option value="person">🚶 Pejalan Kaki</option>
+    </select>
+    <div class="speed-wrap">
+      <span class="speed-label">Kecepatan</span>
+      <input type="range" id="speed-range" min="0.5" max="3" step="0.5" value="1" oninput="document.getElementById('speed-val').textContent=this.value+'x'">
+      <span id="speed-val">1x</span>
+    </div>
+    <button class="btn" id="btnTrack" onclick="toggleTrack()"><span class="btn-icon">▶</span>Start Track</button>
+    <button class="btn danger" onclick="resetTrack()"><span class="btn-icon">↺</span>Reset</button>
+  </div>
+
+  <!-- Status kanan -->
+  <div id="status-right">
+    <div id="progress-wrap"><div id="progress-bar"></div></div>
+    <span id="status">Siap — klik Acak Map untuk mulai</span>
+  </div>
+</div>
+
+<div id="viewport">
+  <div id="map-container"><svg id="map"></svg></div>
+  <canvas id="confetti-canvas"></canvas>
+
+  <div id="info-panel">
+    Node: <span id="info-nodes">0</span> &nbsp;|&nbsp;
+    Ruas Jalan: <span id="info-edges">0</span> &nbsp;|&nbsp;
+    Panjang Jalur: <span id="info-routelen">—</span>
+  </div>
+
+  <div id="cam-indicator">📷 Kamera Mengikuti Objek</div>
+  <div id="road-tooltip"></div>
+  <div id="zoom-info">🔍 <span id="zoom-val">55%</span></div>
+
+  <div id="legend">
+    <div class="leg-row"><div class="leg-dot" style="background:#22c55e"></div>Titik Awal (S)</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#ef4444"></div>Titik Tujuan (T)</div>
+    <div class="leg-row"><div class="leg-line" style="background:#3b82f6"></div>Jalur Perjalanan</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#a8d5a2"></div>Taman / Area Hijau</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#c8b89a"></div>Bangunan</div>
+  </div>
+
+  <div id="toast">🎉 Selamat! Tiba di Tujuan!</div>
+</div>
+
+<script>
+// ============================================================
+// KONFIGURASI
+// ============================================================
+const MAP_W=2800, MAP_H=2000, GRID_COLS=10, GRID_ROWS=8;
+const CELL_W=MAP_W/GRID_COLS, CELL_H=MAP_H/GRID_ROWS;
+const NAMA_JALAN=['Jl. Merdeka','Jl. Sudirman','Jl. Diponegoro','Jl. Gatot Subroto',
+  'Jl. Ahmad Yani','Jl. Hang Tuah','Jl. Raja Ali Haji','Jl. Bintan',
+  'Jl. Trikora','Jl. Usman Harun','Jl. Kamboja','Jl. Melati',
+  'Jl. Pahlawan','Jl. Veteran','Jl. Kartini','Jl. Pemuda',
+  'Jl. Mawar','Jl. Kenanga','Jl. Seroja','Jl. Teratai'];
+const SPEED_BASE={car:200,motor:320,person:75};
+
+// ============================================================
+// STATE
+// ============================================================
+let nodes=[], edges=[], graph={};
+let startNode=0, endNode=0, routeEdges=[];
+let animating=false, animPaused=false, animFrame=null;
+let animT=0, routePoints=[], totalRouteLen=0, lensCache=[];
+let lastTime=null, legPhase=0;
+let currentAngle=0, targetAngle=0;
+let cameraFollow=false;
+let objX=0, objY=0;
+
+// ============================================================
+// PAN & ZOOM
+// ============================================================
+let scale=0.55, panX=0, panY=0, dragging=false, dragStart={x:0,y:0};
+const viewport=document.getElementById('viewport');
+const container=document.getElementById('map-container');
+
+function applyTransform(){
+  container.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;
+  document.getElementById('zoom-val').textContent=Math.round(scale*100)+'%';
+}
+
+viewport.addEventListener('mousedown',e=>{
+  if(cameraFollow)return;
+  dragging=true; dragStart={x:e.clientX-panX,y:e.clientY-panY};
+  viewport.classList.add('grabbing');
+});
+window.addEventListener('mousemove',e=>{
+  if(!dragging)return;
+  panX=e.clientX-dragStart.x; panY=e.clientY-dragStart.y; applyTransform();
+});
+window.addEventListener('mouseup',()=>{dragging=false;viewport.classList.remove('grabbing');});
+
+viewport.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=viewport.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const ns=Math.min(Math.max(scale*(e.deltaY>0?0.9:1.1),0.12),7);
+  panX=mx-(mx-panX)*(ns/scale); panY=my-(my-panY)*(ns/scale);
+  scale=ns; applyTransform();
+},{passive:false});
+
+let lastTD=null;
+viewport.addEventListener('touchstart',e=>{
+  if(e.touches.length===1&&!cameraFollow){dragging=true;dragStart={x:e.touches[0].clientX-panX,y:e.touches[0].clientY-panY};}
+  if(e.touches.length===2)lastTD=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+});
+viewport.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  if(e.touches.length===1&&dragging){panX=e.touches[0].clientX-dragStart.x;panY=e.touches[0].clientY-dragStart.y;applyTransform();}
+  if(e.touches.length===2&&lastTD){const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);scale=Math.min(Math.max(scale*d/lastTD,0.12),7);lastTD=d;applyTransform();}
+},{passive:false});
+viewport.addEventListener('touchend',()=>{dragging=false;lastTD=null;});
+
+function zoomIn(){const cx=viewport.clientWidth/2,cy=viewport.clientHeight/2;const ns=Math.min(scale*1.3,7);panX=cx-(cx-panX)*(ns/scale);panY=cy-(cy-panY)*(ns/scale);scale=ns;applyTransform();}
+function zoomOut(){const cx=viewport.clientWidth/2,cy=viewport.clientHeight/2;const ns=Math.max(scale*0.77,0.12);panX=cx-(cx-panX)*(ns/scale);panY=cy-(cy-panY)*(ns/scale);scale=ns;applyTransform();}
+function resetView(){
+  scale=0.55;
+  panX=(viewport.clientWidth-MAP_W*scale)/2;
+  panY=(viewport.clientHeight-MAP_H*scale)/2;
+  applyTransform();
+}
+
+function toggleCamera(){
+  cameraFollow=!cameraFollow;
+  const btn=document.getElementById('btnCam');
+  const ind=document.getElementById('cam-indicator');
+  if(cameraFollow){btn.classList.add('camon');btn.innerHTML='<span class="btn-icon">📷</span>Lepas';ind.style.display='block';}
+  else{btn.classList.remove('camon');btn.innerHTML='<span class="btn-icon">📷</span>Ikuti';ind.style.display='none';}
+}
+
+function updateCameraFollow(){
+  if(!cameraFollow||!animating)return;
+  const vw=viewport.clientWidth, vh=viewport.clientHeight;
+  panX+=(vw/2-objX*scale-panX)*0.08;
+  panY+=(vh/2-objY*scale-panY)*0.08;
+  applyTransform();
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function rnd(a,b){return a+Math.random()*(b-a);}
+function rndInt(a,b){return Math.floor(rnd(a,b+1));}
+function mkEl(tag){return document.createElementNS('http://www.w3.org/2000/svg',tag);}
+function mkG(){return mkEl('g');}
+function setStatus(msg){document.getElementById('status').textContent=msg;}
+function lerpAngle(a,b,t){let d=b-a;while(d>180)d-=360;while(d<-180)d+=360;return a+d*t;}
+function updateInfoPanel(){
+  document.getElementById('info-nodes').textContent=nodes.length;
+  document.getElementById('info-edges').textContent=edges.length;
+  document.getElementById('info-routelen').textContent=routeEdges.length>0?Math.round(totalRouteLen)+'px':'—';
+}
+
+// ============================================================
+// GENERATE MAP
+// ============================================================
+function generateMap(){
+  stopAnim(); setStatus('Membuat peta acak...');
+  nodes=[];
+  for(let r=0;r<GRID_ROWS;r++)
+    for(let c=0;c<GRID_COLS;c++)
+      nodes.push({id:r*GRID_COLS+c, x:(c+0.5+rnd(-0.22,0.22))*CELL_W, y:(r+0.5+rnd(-0.22,0.22))*CELL_H});
+
+  edges=[]; graph={};
+  nodes.forEach(n=>graph[n.id]=[]);
+  const names=[...NAMA_JALAN].sort(()=>Math.random()-0.5);
+  let ni=0;
+
+  function addEdge(a,b){
+    if(graph[a].some(e=>e.to===b))return;
+    const na=nodes[a],nb=nodes[b],dx=nb.x-na.x,dy=nb.y-na.y;
+    const cx1=na.x+dx*rnd(0.2,0.4)+rnd(-110,110),cy1=na.y+dy*rnd(0.2,0.4)+rnd(-110,110);
+    const cx2=na.x+dx*rnd(0.6,0.8)+rnd(-110,110),cy2=na.y+dy*rnd(0.6,0.8)+rnd(-110,110);
+    const d=`M ${na.x} ${na.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${nb.x} ${nb.y}`;
+    const idx=edges.length;
+    edges.push({from:a,to:b,d,cx1,cy1,cx2,cy2,length:Math.hypot(dx,dy)*rnd(1.1,1.5),label:names[ni++%names.length]});
+    graph[a].push({to:b,edgeIdx:idx}); graph[b].push({to:a,edgeIdx:idx});
+  }
+
+  for(let r=0;r<GRID_ROWS;r++) for(let c=0;c<GRID_COLS;c++){
+    const id=r*GRID_COLS+c;
+    if(c+1<GRID_COLS)addEdge(id,id+1);
+    if(r+1<GRID_ROWS)addEdge(id,id+GRID_COLS);
+  }
+  for(let r=0;r<GRID_ROWS-1;r++) for(let c=0;c<GRID_COLS-1;c++)
+    if(Math.random()<0.45){const id=r*GRID_COLS+c;Math.random()<0.5?addEdge(id,id+GRID_COLS+1):addEdge(id+1,id+GRID_COLS);}
+
+  ensureConnected();
+  randomizePositions();
+  renderMap();
+  setStatus('Peta siap — pilih objek & klik Start Track');
+}
+
+function ensureConnected(){
+  const visited=new Set(),queue=[0];visited.add(0);
+  while(queue.length){const cur=queue.shift();for(const{to}of graph[cur])if(!visited.has(to)){visited.add(to);queue.push(to);}}
+  nodes.forEach(n=>{
+    if(!visited.has(n.id)){
+      let closest=-1,minD=Infinity;
+      visited.forEach(vid=>{const d=Math.hypot(nodes[vid].x-n.x,nodes[vid].y-n.y);if(d<minD){minD=d;closest=vid;}});
+      if(closest>=0){
+        const na=nodes[n.id],nb=nodes[closest],dx=nb.x-na.x,dy=nb.y-na.y;
+        const cx1=na.x+dx*0.3+rnd(-60,60),cy1=na.y+dy*0.3+rnd(-60,60);
+        const cx2=na.x+dx*0.7+rnd(-60,60),cy2=na.y+dy*0.7+rnd(-60,60);
+        const idx=edges.length;
+        edges.push({from:n.id,to:closest,d:`M ${na.x} ${na.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${nb.x} ${nb.y}`,cx1,cy1,cx2,cy2,length:Math.hypot(dx,dy)*1.3,label:'Jl. Penghubung'});
+        graph[n.id].push({to:closest,edgeIdx:idx});graph[closest].push({to:n.id,edgeIdx:idx});
+        const q2=[n.id];visited.add(n.id);
+        while(q2.length){const c=q2.shift();for(const{to}of graph[c])if(!visited.has(to)){visited.add(to);q2.push(to);}}
+      }
+    }
+  });
+}
+
+// ============================================================
+// RENDER MAP
+// ============================================================
+function renderMap(){
+  const svg=document.getElementById('map');
+  svg.setAttribute('width',MAP_W);svg.setAttribute('height',MAP_H);
+  svg.setAttribute('viewBox',`0 0 ${MAP_W} ${MAP_H}`);
+  svg.innerHTML='';
+
+  const bg=mkEl('rect');bg.setAttribute('width',MAP_W);bg.setAttribute('height',MAP_H);bg.setAttribute('fill','#f0ebe3');svg.appendChild(bg);
+
+  const blockG=mkG();svg.appendChild(blockG);
+  for(let r=0;r<GRID_ROWS;r++) for(let c=0;c<GRID_COLS;c++){
+    const cx=(c+0.5)*CELL_W,cy=(r+0.5)*CELL_H;
+    Math.random()<0.18?drawPark(blockG,cx,cy):drawCityBlock(blockG,cx,cy);
+  }
+
+  const rsg=mkG();svg.appendChild(rsg);
+  edges.forEach(e=>{const p=mkEl('path');p.setAttribute('d',e.d);p.setAttribute('stroke','#b0a090');p.setAttribute('stroke-width','22');p.setAttribute('fill','none');p.setAttribute('stroke-linecap','round');rsg.appendChild(p);});
+
+  const rg=mkG();svg.appendChild(rg);
+  edges.forEach(e=>{const p=mkEl('path');p.setAttribute('d',e.d);p.setAttribute('stroke','#d8cfc2');p.setAttribute('stroke-width','14');p.setAttribute('fill','none');p.setAttribute('stroke-linecap','round');rg.appendChild(p);});
+
+  const rlg=mkG();svg.appendChild(rlg);
+  edges.forEach(e=>{const p=mkEl('path');p.setAttribute('d',e.d);p.setAttribute('stroke','#bab0a0');p.setAttribute('stroke-width','1.5');p.setAttribute('stroke-dasharray','14 10');p.setAttribute('fill','none');p.setAttribute('stroke-linecap','round');rlg.appendChild(p);});
+
+  const hg=mkG();hg.setAttribute('id','highlight-group');svg.appendChild(hg);drawHighlight(hg);
+
+  const lg=mkG();svg.appendChild(lg);
+  edges.forEach((e,i)=>{
+    if(i%3!==0)return;
+    const na=nodes[e.from],nb=nodes[e.to];
+    const midX=(na.x+nb.x)/2,midY=(na.y+nb.y)/2;
+    const angle=Math.atan2(nb.y-na.y,nb.x-na.x)*180/Math.PI;
+    const txt=mkEl('text');txt.setAttribute('x',midX);txt.setAttribute('y',midY);txt.setAttribute('text-anchor','middle');txt.setAttribute('font-size','9');txt.setAttribute('fill','#7a6e5f');txt.setAttribute('font-family','Arial,sans-serif');txt.setAttribute('transform',`rotate(${angle>90||angle<-90?angle+180:angle},${midX},${midY})`);txt.textContent=e.label;lg.appendChild(txt);
+  });
+
+  const ng=mkG();svg.appendChild(ng);
+  nodes.forEach(n=>{
+    const c=mkEl('circle');c.setAttribute('cx',n.x);c.setAttribute('cy',n.y);c.setAttribute('r',5);c.setAttribute('fill','#d4c9b8');c.setAttribute('stroke','#b0a090');c.setAttribute('stroke-width','1.5');ng.appendChild(c);
+  });
+
+  const mg=mkG();mg.setAttribute('id','markers-group');svg.appendChild(mg);renderMarkersInto(mg);
+
+  const og=mkG();og.setAttribute('id','obj-group');og.setAttribute('display','none');svg.appendChild(og);
+  buildObjShape(og);
+
+  updateInfoPanel();
+}
+
+function drawHighlight(g){
+  g.innerHTML='';
+  routeEdges.forEach(idx=>{
+    const e=edges[idx];
+    const glow=mkEl('path');glow.setAttribute('d',e.d);glow.setAttribute('stroke','#93c5fd');glow.setAttribute('stroke-width','14');glow.setAttribute('fill','none');glow.setAttribute('stroke-linecap','round');glow.setAttribute('opacity','0.35');g.appendChild(glow);
+    const line=mkEl('path');line.setAttribute('d',e.d);line.setAttribute('stroke','#3b82f6');line.setAttribute('stroke-width','5');line.setAttribute('fill','none');line.setAttribute('stroke-linecap','round');g.appendChild(line);
+  });
+}
+
+function drawCityBlock(parent,cx,cy){
+  for(let i=0,n=rndInt(2,5);i<n;i++){
+    const bw=rnd(20,CELL_W*0.28),bh=rnd(20,CELL_H*0.28);
+    const bx=cx+rnd(-CELL_W*0.3,CELL_W*0.3)-bw/2,by=cy+rnd(-CELL_H*0.3,CELL_H*0.3)-bh/2;
+    const sh=mkEl('rect');sh.setAttribute('x',bx+3);sh.setAttribute('y',by+3);sh.setAttribute('width',bw);sh.setAttribute('height',bh);sh.setAttribute('rx',2);sh.setAttribute('fill','rgba(0,0,0,0.1)');parent.appendChild(sh);
+    const colors=['#c8b89a','#d4c4a6','#bfaf96','#c9bba5','#d0c3ae','#cfc0a8'];
+    const r=mkEl('rect');r.setAttribute('x',bx);r.setAttribute('y',by);r.setAttribute('width',bw);r.setAttribute('height',bh);r.setAttribute('rx',2);r.setAttribute('fill',colors[rndInt(0,colors.length-1)]);r.setAttribute('stroke','#a89880');r.setAttribute('stroke-width','0.8');parent.appendChild(r);
+    const rf=mkEl('rect');rf.setAttribute('x',bx+2);rf.setAttribute('y',by+2);rf.setAttribute('width',bw-4);rf.setAttribute('height',bh*0.3);rf.setAttribute('rx',1);rf.setAttribute('fill','rgba(0,0,0,0.08)');parent.appendChild(rf);
+  }
+}
+
+function drawPark(parent,cx,cy){
+  const pw=CELL_W*rnd(0.35,0.55),ph=CELL_H*rnd(0.35,0.55);
+  const p=mkEl('rect');p.setAttribute('x',cx-pw/2);p.setAttribute('y',cy-ph/2);p.setAttribute('width',pw);p.setAttribute('height',ph);p.setAttribute('rx',8);p.setAttribute('fill','#a8d5a2');p.setAttribute('stroke','#7cb87c');p.setAttribute('stroke-width','1.5');parent.appendChild(p);
+  const inn=mkEl('rect');inn.setAttribute('x',cx-pw*0.35);inn.setAttribute('y',cy-ph*0.35);inn.setAttribute('width',pw*0.7);inn.setAttribute('height',ph*0.7);inn.setAttribute('rx',5);inn.setAttribute('fill','#90c98a');parent.appendChild(inn);
+  for(let i=0,n=rndInt(3,7);i<n;i++){
+    const tx=cx+rnd(-pw*0.4,pw*0.4),ty=cy+rnd(-ph*0.4,ph*0.4),tr=rnd(6,14);
+    const t=mkEl('circle');t.setAttribute('cx',tx);t.setAttribute('cy',ty);t.setAttribute('r',tr);t.setAttribute('fill','#5a9e5a');t.setAttribute('opacity','0.85');parent.appendChild(t);
+    const hl=mkEl('circle');hl.setAttribute('cx',tx-tr*0.3);hl.setAttribute('cy',ty-tr*0.3);hl.setAttribute('r',tr*0.4);hl.setAttribute('fill','#7cb87c');hl.setAttribute('opacity','0.5');parent.appendChild(hl);
+  }
+  const lbl=mkEl('text');lbl.setAttribute('x',cx);lbl.setAttribute('y',cy+ph/2+12);lbl.setAttribute('text-anchor','middle');lbl.setAttribute('font-size','8');lbl.setAttribute('fill','#3d7a3d');lbl.setAttribute('font-family','Arial,sans-serif');lbl.textContent=Math.random()<0.5?'Taman Kota':'Area Hijau';parent.appendChild(lbl);
+}
+
+function renderMarkersInto(g){
+  g.innerHTML='';
+  drawFlag(g,nodes[startNode].x,nodes[startNode].y,'#22c55e','#15803d','S');
+  drawFlag(g,nodes[endNode].x,nodes[endNode].y,'#ef4444','#b91c1c','T');
+}
+function renderMarkers(){const mg=document.getElementById('markers-group');if(mg)renderMarkersInto(mg);}
+function drawFlag(parent,x,y,fill,dark,label){
+  const sh=mkEl('ellipse');sh.setAttribute('cx',x);sh.setAttribute('cy',y+3);sh.setAttribute('rx',10);sh.setAttribute('ry',4);sh.setAttribute('fill','rgba(0,0,0,0.15)');parent.appendChild(sh);
+  const pole=mkEl('line');pole.setAttribute('x1',x);pole.setAttribute('y1',y);pole.setAttribute('x2',x);pole.setAttribute('y2',y-38);pole.setAttribute('stroke','#555');pole.setAttribute('stroke-width','2.5');parent.appendChild(pole);
+  const flag=mkEl('polygon');flag.setAttribute('points',`${x},${y-38} ${x+18},${y-31} ${x},${y-24}`);flag.setAttribute('fill',fill);flag.setAttribute('stroke',dark);flag.setAttribute('stroke-width','1');parent.appendChild(flag);
+  const c=mkEl('circle');c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r',9);c.setAttribute('fill',fill);c.setAttribute('stroke','#fff');c.setAttribute('stroke-width','2');parent.appendChild(c);
+  const txt=mkEl('text');txt.setAttribute('x',x);txt.setAttribute('y',y+4);txt.setAttribute('text-anchor','middle');txt.setAttribute('font-size','9');txt.setAttribute('fill','white');txt.setAttribute('font-weight','bold');txt.setAttribute('font-family','Arial,sans-serif');txt.textContent=label;parent.appendChild(txt);
+}
+
+function buildObjShape(g){
+  g.innerHTML='';
+  const type=document.getElementById('obj-select').value;
+  if(type==='car'){
+    const bodi=mkEl('rect');bodi.setAttribute('x',-16);bodi.setAttribute('y',-8);bodi.setAttribute('width',32);bodi.setAttribute('height',16);bodi.setAttribute('rx',5);bodi.setAttribute('fill','#ef4444');bodi.setAttribute('stroke','#b91c1c');bodi.setAttribute('stroke-width','1.2');g.appendChild(bodi);
+    const kabin=mkEl('rect');kabin.setAttribute('x',-9);kabin.setAttribute('y',-15);kabin.setAttribute('width',20);kabin.setAttribute('height',11);kabin.setAttribute('rx',4);kabin.setAttribute('fill','#fca5a5');kabin.setAttribute('stroke','#f87171');kabin.setAttribute('stroke-width','0.8');g.appendChild(kabin);
+    const kd=mkEl('rect');kd.setAttribute('x',4);kd.setAttribute('y',-14);kd.setAttribute('width',6);kd.setAttribute('height',8);kd.setAttribute('rx',2);kd.setAttribute('fill','#bfdbfe');kd.setAttribute('opacity','0.85');g.appendChild(kd);
+    const kb=mkEl('rect');kb.setAttribute('x',-9);kb.setAttribute('y',-14);kb.setAttribute('width',5);kb.setAttribute('height',8);kb.setAttribute('rx',2);kb.setAttribute('fill','#bfdbfe');kb.setAttribute('opacity','0.6');g.appendChild(kb);
+    const ld=mkEl('rect');ld.setAttribute('x',13);ld.setAttribute('y',-5);ld.setAttribute('width',4);ld.setAttribute('height',4);ld.setAttribute('rx',1);ld.setAttribute('fill','#fef08a');g.appendChild(ld);
+    const lb=mkEl('rect');lb.setAttribute('x',-17);lb.setAttribute('y',-5);lb.setAttribute('width',3);lb.setAttribute('height',4);lb.setAttribute('rx',1);lb.setAttribute('fill','#fca5a5');g.appendChild(lb);
+    [[-11,-9],[-11,9],[10,-9],[10,9]].forEach(([wx,wy])=>{const w=mkEl('circle');w.setAttribute('cx',wx);w.setAttribute('cy',wy);w.setAttribute('r',4);w.setAttribute('fill','#1f2937');w.setAttribute('stroke','#6b7280');w.setAttribute('stroke-width','1.2');g.appendChild(w);const wh=mkEl('circle');wh.setAttribute('cx',wx);wh.setAttribute('cy',wy);wh.setAttribute('r',1.5);wh.setAttribute('fill','#9ca3af');g.appendChild(wh);});
+  } else if(type==='motor'){
+    const rb=mkEl('circle');rb.setAttribute('cx',-12);rb.setAttribute('cy',0);rb.setAttribute('r',7);rb.setAttribute('fill','#1f2937');rb.setAttribute('stroke','#9ca3af');rb.setAttribute('stroke-width','2');g.appendChild(rb);
+    const rbh=mkEl('circle');rbh.setAttribute('cx',-12);rbh.setAttribute('cy',0);rbh.setAttribute('r',2.5);rbh.setAttribute('fill','#6b7280');g.appendChild(rbh);
+    const rd=mkEl('circle');rd.setAttribute('cx',12);rd.setAttribute('cy',0);rd.setAttribute('r',7);rd.setAttribute('fill','#1f2937');rd.setAttribute('stroke','#9ca3af');rd.setAttribute('stroke-width','2');g.appendChild(rd);
+    const rdh=mkEl('circle');rdh.setAttribute('cx',12);rdh.setAttribute('cy',0);rdh.setAttribute('r',2.5);rdh.setAttribute('fill','#6b7280');g.appendChild(rdh);
+    const rangka=mkEl('line');rangka.setAttribute('x1',-10);rangka.setAttribute('y1',-2);rangka.setAttribute('x2',10);rangka.setAttribute('y2',-2);rangka.setAttribute('stroke','#f97316');rangka.setAttribute('stroke-width','4');rangka.setAttribute('stroke-linecap','round');g.appendChild(rangka);
+    const bodi=mkEl('ellipse');bodi.setAttribute('cx',0);bodi.setAttribute('cy',-4);bodi.setAttribute('rx',10);bodi.setAttribute('ry',4);bodi.setAttribute('fill','#f97316');bodi.setAttribute('stroke','#c2410c');bodi.setAttribute('stroke-width','1');g.appendChild(bodi);
+    const setang=mkEl('line');setang.setAttribute('x1',9);setang.setAttribute('y1',-7);setang.setAttribute('x2',13);setang.setAttribute('y2',-4);setang.setAttribute('stroke','#9ca3af');setang.setAttribute('stroke-width','2');setang.setAttribute('stroke-linecap','round');g.appendChild(setang);
+    const badan=mkEl('rect');badan.setAttribute('x',-5);badan.setAttribute('y',-14);badan.setAttribute('width',9);badan.setAttribute('height',8);badan.setAttribute('rx',2);badan.setAttribute('fill','#1e40af');g.appendChild(badan);
+    const helm=mkEl('circle');helm.setAttribute('cx',0);helm.setAttribute('cy',-18);helm.setAttribute('r',6);helm.setAttribute('fill','#1e40af');helm.setAttribute('stroke','#1e3a8a');helm.setAttribute('stroke-width','1');g.appendChild(helm);
+    const muka=mkEl('ellipse');muka.setAttribute('cx',2);muka.setAttribute('cy',-17);muka.setAttribute('rx',3);muka.setAttribute('ry',2.5);muka.setAttribute('fill','#fbbf24');g.appendChild(muka);
+  } else {
+    const bayangan=mkEl('ellipse');bayangan.setAttribute('cx',0);bayangan.setAttribute('cy',16);bayangan.setAttribute('rx',6);bayangan.setAttribute('ry',2);bayangan.setAttribute('fill','rgba(0,0,0,0.15)');g.appendChild(bayangan);
+    const kakiK=mkEl('line');kakiK.setAttribute('id','kaki-kiri');kakiK.setAttribute('x1',-2);kakiK.setAttribute('y1',8);kakiK.setAttribute('x2',-4);kakiK.setAttribute('y2',16);kakiK.setAttribute('stroke','#7c3aed');kakiK.setAttribute('stroke-width','3');kakiK.setAttribute('stroke-linecap','round');g.appendChild(kakiK);
+    const kakiD=mkEl('line');kakiD.setAttribute('id','kaki-kanan');kakiD.setAttribute('x1',2);kakiD.setAttribute('y1',8);kakiD.setAttribute('x2',4);kakiD.setAttribute('y2',16);kakiD.setAttribute('stroke','#7c3aed');kakiD.setAttribute('stroke-width','3');kakiD.setAttribute('stroke-linecap','round');g.appendChild(kakiD);
+    const badan=mkEl('rect');badan.setAttribute('x',-5);badan.setAttribute('y',-2);badan.setAttribute('width',10);badan.setAttribute('height',12);badan.setAttribute('rx',3);badan.setAttribute('fill','#8b5cf6');badan.setAttribute('stroke','#6d28d9');badan.setAttribute('stroke-width','1');g.appendChild(badan);
+    const tanganK=mkEl('line');tanganK.setAttribute('id','tangan-kiri');tanganK.setAttribute('x1',-5);tanganK.setAttribute('y1',2);tanganK.setAttribute('x2',-10);tanganK.setAttribute('y2',7);tanganK.setAttribute('stroke','#8b5cf6');tanganK.setAttribute('stroke-width','2.5');tanganK.setAttribute('stroke-linecap','round');g.appendChild(tanganK);
+    const tanganD=mkEl('line');tanganD.setAttribute('id','tangan-kanan');tanganD.setAttribute('x1',5);tanganD.setAttribute('y1',2);tanganD.setAttribute('x2',10);tanganD.setAttribute('y2',7);tanganD.setAttribute('stroke','#8b5cf6');tanganD.setAttribute('stroke-width','2.5');tanganD.setAttribute('stroke-linecap','round');g.appendChild(tanganD);
+    const kepala=mkEl('circle');kepala.setAttribute('cx',0);kepala.setAttribute('cy',-8);kepala.setAttribute('r',7);kepala.setAttribute('fill','#fbbf24');kepala.setAttribute('stroke','#d97706');kepala.setAttribute('stroke-width','1');g.appendChild(kepala);
+    const mataK=mkEl('circle');mataK.setAttribute('cx',-2);mataK.setAttribute('cy',-9);mataK.setAttribute('r',1.2);mataK.setAttribute('fill','#1f2937');g.appendChild(mataK);
+    const mataD=mkEl('circle');mataD.setAttribute('cx',2);mataD.setAttribute('cy',-9);mataD.setAttribute('r',1.2);mataD.setAttribute('fill','#1f2937');g.appendChild(mataD);
+    const senyum=mkEl('path');senyum.setAttribute('d','M -2 -6 Q 0 -4 2 -6');senyum.setAttribute('stroke','#1f2937');senyum.setAttribute('stroke-width','1');senyum.setAttribute('fill','none');senyum.setAttribute('stroke-linecap','round');g.appendChild(senyum);
+  }
+}
+
+function animatePerson(ts){
+  if(document.getElementById('obj-select').value!=='person')return;
+  legPhase=ts*0.005;
+  const swing=Math.sin(legPhase)*6;
+  const kk=document.getElementById('kaki-kiri'),kd=document.getElementById('kaki-kanan');
+  const tk=document.getElementById('tangan-kiri'),td=document.getElementById('tangan-kanan');
+  if(kk){kk.setAttribute('x2',-4+swing);kk.setAttribute('y2',16);}
+  if(kd){kd.setAttribute('x2',4-swing);kd.setAttribute('y2',16);}
+  if(tk){tk.setAttribute('x2',-10-swing*0.5);tk.setAttribute('y2',7);}
+  if(td){td.setAttribute('x2',10+swing*0.5);td.setAttribute('y2',7);}
+}
+
+function onObjChange(){const og=document.getElementById('obj-group');if(og&&og.getAttribute('display')!=='none')buildObjShape(og);}
+
+// ============================================================
+// ACAK POSISI
+// ============================================================
+function randomizePositions(){
+  stopAnim();
+  const n=nodes.length;
+  let tries=0;
+  do{startNode=rndInt(0,n-1);endNode=rndInt(0,n-1);}while(startNode===endNode);
+  routeEdges=findPath(startNode,endNode);
+  while(routeEdges.length===0&&tries++<20){
+    do{startNode=rndInt(0,n-1);endNode=rndInt(0,n-1);}while(startNode===endNode);
+    routeEdges=findPath(startNode,endNode);
+  }
+  // Precompute untuk info panel
+  buildRoutePoints();
+  const svg=document.getElementById('map');
+  if(!svg.innerHTML){renderMap();return;}
+  const hg=document.getElementById('highlight-group');if(hg)drawHighlight(hg);
+  renderMarkers();
+  updateInfoPanel();
+  setStatus(routeEdges.length>0?`Jalur: ${routeEdges.length} ruas — klik Start Track`:'Tidak ada jalur, coba lagi');
+}
+
+// ============================================================
+// PATHFINDING — Dijkstra
+// ============================================================
+function findPath(start,end){
+  if(start===end)return[];
+  const dist={},prev={},prevEdge={};
+  nodes.forEach(n=>dist[n.id]=Infinity);dist[start]=0;
+  const visited=new Set(),queue=[{id:start,d:0}];
+  while(queue.length){
+    queue.sort((a,b)=>a.d-b.d);
+    const{id:cur}=queue.shift();if(visited.has(cur))continue;visited.add(cur);if(cur===end)break;
+    for(const{to,edgeIdx}of graph[cur]){if(visited.has(to))continue;const nd=dist[cur]+edges[edgeIdx].length;if(nd<dist[to]){dist[to]=nd;prev[to]=cur;prevEdge[to]=edgeIdx;queue.push({id:to,d:nd});}}
+  }
+  if(dist[end]===Infinity)return[];
+  const path=[];let cur=end;while(prev[cur]!==undefined){path.unshift(prevEdge[cur]);cur=prev[cur];}return path;
+}
+
+// ============================================================
+// BUILD ROUTE POINTS
+// ============================================================
+function buildRoutePoints(){
+  routePoints=[];lensCache=[];totalRouteLen=0;
+  const SAMPLES=80;let cur=startNode;
+  for(const eidx of routeEdges){
+    const e=edges[eidx],fwd=e.from===cur;
+    const na=nodes[fwd?e.from:e.to],nb=nodes[fwd?e.to:e.from];
+    const cx1=fwd?e.cx1:e.cx2,cy1=fwd?e.cy1:e.cy2,cx2=fwd?e.cx2:e.cx1,cy2=fwd?e.cy2:e.cy1;
+    for(let i=0;i<=SAMPLES;i++){const t=i/SAMPLES,mt=1-t;routePoints.push({x:mt*mt*mt*na.x+3*mt*mt*t*cx1+3*mt*t*t*cx2+t*t*t*nb.x,y:mt*mt*mt*na.y+3*mt*mt*t*cy1+3*mt*t*t*cy2+t*t*t*nb.y});}
+    cur=fwd?e.to:e.from;
+  }
+  for(let i=1;i<routePoints.length;i++){const d=Math.hypot(routePoints[i].x-routePoints[i-1].x,routePoints[i].y-routePoints[i-1].y);lensCache.push(d);totalRouteLen+=d;}
+}
+
+// ============================================================
+// ANIMASI
+// ============================================================
+function toggleTrack(){
+  if(routeEdges.length===0){setStatus('Tidak ada jalur!');return;}
+  if(!animating){
+    animating=true;animPaused=false;animT=0;legPhase=0;lastTime=null;currentAngle=0;targetAngle=0;
+    buildRoutePoints();
+    const og=document.getElementById('obj-group');if(og){og.setAttribute('display','');buildObjShape(og);}
+    document.getElementById('btnTrack').innerHTML='<span class="btn-icon">⏸</span>Pause';
+    document.getElementById('btnTrack').classList.add('active');
+    document.getElementById('btnTrack').classList.remove('paused');
+    document.getElementById('progress-wrap').style.display='block';
+    requestAnimationFrame(animStep);
+  } else if(!animPaused){
+    animPaused=true;lastTime=null;
+    document.getElementById('btnTrack').innerHTML='<span class="btn-icon">▶</span>Resume';
+    document.getElementById('btnTrack').classList.remove('active');
+    document.getElementById('btnTrack').classList.add('paused');
+    if(animFrame)cancelAnimationFrame(animFrame);
+  } else {
+    animPaused=false;lastTime=null;
+    document.getElementById('btnTrack').innerHTML='<span class="btn-icon">⏸</span>Pause';
+    document.getElementById('btnTrack').classList.add('active');
+    document.getElementById('btnTrack').classList.remove('paused');
+    requestAnimationFrame(animStep);
+  }
+}
+
+function resetTrack(){
+  stopAnim();animT=0;
+  setStatus('Reset — klik Start Track untuk mulai lagi');
+}
+
+function stopAnim(){
+  animating=false;animPaused=false;lastTime=null;
+  if(animFrame)cancelAnimationFrame(animFrame);
+  document.getElementById('btnTrack').innerHTML='<span class="btn-icon">▶</span>Start Track';
+  document.getElementById('btnTrack').classList.remove('active','paused');
+  document.getElementById('progress-wrap').style.display='none';
+  document.getElementById('progress-bar').style.width='0%';
+  const og=document.getElementById('obj-group');if(og)og.setAttribute('display','none');
+}
+
+function animStep(ts){
+  if(!animating||animPaused)return;
+  if(!lastTime)lastTime=ts;
+  const dt=Math.min((ts-lastTime)/1000,0.05);lastTime=ts;
+  const speedMult=parseFloat(document.getElementById('speed-range').value)||1;
+  const type=document.getElementById('obj-select').value;
+  animT+=SPEED_BASE[type]*speedMult*dt;
+  animatePerson(ts);
+  if(routePoints.length<2){stopAnim();return;}
+  if(animT>=totalRouteLen){
+    const last=routePoints[routePoints.length-1];
+    objX=last.x;objY=last.y;moveObj(last.x,last.y,currentAngle);
+    document.getElementById('progress-bar').style.width='100%';
+    setStatus('✅ Tiba di tujuan!');
+    stopAnim();showArrival();return;
+  }
+  let acc=0,posX=0,posY=0,newAngle=0;
+  for(let i=0;i<lensCache.length;i++){
+    if(acc+lensCache[i]>=animT){
+      const t=(animT-acc)/lensCache[i],p0=routePoints[i],p1=routePoints[i+1];
+      posX=p0.x+(p1.x-p0.x)*t;posY=p0.y+(p1.y-p0.y)*t;
+      newAngle=Math.atan2(p1.y-p0.y,p1.x-p0.x)*180/Math.PI;break;
+    }
+    acc+=lensCache[i];
+  }
+  targetAngle=newAngle;
+  currentAngle=lerpAngle(currentAngle,targetAngle,0.15);
+  objX=posX;objY=posY;
+  moveObj(posX,posY,currentAngle);
+  const pct=Math.min(Math.round(animT/totalRouteLen*100),100);
+  document.getElementById('progress-bar').style.width=pct+'%';
+  const emoji=type==='car'?'🚗':type==='motor'?'🏍':'🚶';
+  setStatus(`${emoji} Perjalanan ${pct}% — ${Math.round(totalRouteLen-animT)}px tersisa`);
+  updateCameraFollow();
+  animFrame=requestAnimationFrame(animStep);
+}
+
+function moveObj(x,y,angle){const og=document.getElementById('obj-group');if(og)og.setAttribute('transform',`translate(${x},${y}) rotate(${angle})`);}
+
+// ============================================================
+// EFEK SELESAI
+// ============================================================
+function showArrival(){
+  const toast=document.getElementById('toast');
+  toast.classList.add('show');
+  setTimeout(()=>toast.classList.remove('show'),3500);
+  const canvas=document.getElementById('confetti-canvas');
+  canvas.style.display='block';canvas.width=viewport.clientWidth;canvas.height=viewport.clientHeight;
+  const ctx=canvas.getContext('2d');
+  const pieces=Array.from({length:160},()=>({x:rnd(0,canvas.width),y:rnd(-30,0),w:rnd(8,16),h:rnd(5,10),color:`hsl(${rndInt(0,360)},80%,60%)`,rot:rnd(0,360),rotSpeed:rnd(-6,6),vx:rnd(-2,2),vy:rnd(3,9),alpha:1}));
+  let cFrame;
+  function drawConfetti(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);let alive=false;
+    pieces.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.rot+=p.rotSpeed;p.vy+=0.12;p.alpha-=0.007;if(p.alpha>0)alive=true;ctx.save();ctx.globalAlpha=Math.max(p.alpha,0);ctx.translate(p.x,p.y);ctx.rotate(p.rot*Math.PI/180);ctx.fillStyle=p.color;ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);ctx.restore();});
+    if(alive)cFrame=requestAnimationFrame(drawConfetti);
+    else{ctx.clearRect(0,0,canvas.width,canvas.height);canvas.style.display='none';}
+  }
+  drawConfetti();
+  setTimeout(()=>{cancelAnimationFrame(cFrame);ctx.clearRect(0,0,canvas.width,canvas.height);canvas.style.display='none';},5000);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+window.addEventListener('load',()=>{
+  const vw=viewport.clientWidth,vh=viewport.clientHeight;
+  panX=(vw-MAP_W*scale)/2;panY=(vh-MAP_H*scale)/2;
+  applyTransform();generateMap();
+});
+</script>
+</body>
+</html>
